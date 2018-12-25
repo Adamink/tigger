@@ -10,7 +10,7 @@
 
 using namespace std;
 
-enum NodeType{RootNodeType, GlobalDeclareNodeType, FuncNodeType, ExprNodeType, OtherNodeType, EmptyNodeType, IdNodeType};
+enum NodeType{RootNodeType, GlobalDeclareNodeType, FuncNodeType, ExprNodeType, OtherNodeType, EmptyNodeType, IdNodeType, BlockNode};
 enum ExprType{Op2Type, Op1Type, NoOpType, StoreArrayType, VisitArrayType, 
 IfBranchType, GotoType, LabelType, CallType, ReturnType,LocalDeclareType};
 
@@ -80,6 +80,10 @@ class FuncNode:public Node{
         // 已存在则返回对应条目指针，不存在则新建条目返回指针
         IdNode* addIdToManagerIfNotExisted(IdNode* id);
 
+        // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
+        // 将idManager和regManager传递给Block作为初始状态
+        void buildBlocks();
+
         // 计算每个孩子Expr的活跃变量
         // 调用calSuccForExprs和calAliveVarsForExprs
         void analyzeLiveness();
@@ -104,11 +108,26 @@ class FuncNode:public Node{
         virtual void printCode();
 
 };
+class BlockNode:public Node{
+    private:
+        FuncNode* funcParent;
+        Regmanager regManager;
+        IdManager idManager;
+        int blockId;
+        // 所有在该Block内定值的全局变量，非临时变量，函数参数
+        set<IdNode*> finalAliveVarSet;
+        void calcFinalAliveVarSet();
+
+    public:
+        BlockNode(int id, const RegManager& r, const IdManager& i);
+
+}
 class ExprNode:public Node{
     private:
         ExprType exprType;
         int lineNo;
         FuncNode* funcParent;
+        BlockNode* blockParent;
         // 后继表达式集
         set<ExprNode*> succExprSet;
         // 活跃变量集
@@ -136,6 +155,7 @@ class ExprNode:public Node{
         // 返回GotoType, IfBrachType, LabelType的label,不带冒号
         string getLabel();
         void setFuncParent(FuncNode* parent);
+        void setBlockParent(BlockNode* parent);
         void setLineNo(int lineNo_);
 
         // 将succ添加入后继表达式集合succExprs
