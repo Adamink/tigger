@@ -203,7 +203,51 @@ IdNode* FuncNode::addIdToManagerIfNotExisted(IdNode* id){
 // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
 // 将idManager和regManager传递给Block作为初始状态
 void FuncNode::buildBlocks(){
+    int blockId = 0;
+    set<int> leaders;
+    // leaders 是块的首表达式下标集合
+    leaders = calcLeaders();
+    set<int> workList = leaders;
+    vector<Node*> blocks = vector<Node*>();
+    int l = children.size();
+    // 根据leaders分块
+    while(!workList.empty()){
+        blockId++;
+        BlockNode* block = new BlockNode(blockId, this, regManager, idManager);
+        int firstExpr = *(workList.begin());
+        workList.erase(firstExpr);
+        block.addChild(children[firstExpr]);
+        for(int i = firstExpr + 1;i < l&&leaders.count(i)==0;i++)
+            block.addChild(children[i]);
+        blocks.push_back(block);
+    }
+    children = blocks;
+}
 
+// 返回构建Blocks需要的leader集合
+set<int> FuncNode::calcLeaders(){
+    set<int> leaders = set<int>();
+    if(children.size()!=0)
+        leaders.insert(1);
+    int l = children.size();
+    for(int i = 0;i<l;i++){
+        ExprNode* expr = (ExprNode*) children[i];
+        if(expr->getExprType()==GotoType){
+            string label = expr->getLabel();
+            ExprNode* dst = searchLabel(label);
+            leaders.insert(dst.getLineNo());
+        }
+        else if(expr->getExprType()==IfBranchType){
+            string label = expr->getLabel();
+            ExprNode* dst = searchLabel(label);
+            leaders.insert(dst.getLineNo());
+            if(i!=l-1){
+                ExprNode* next = (ExprNode*)children[i+1];
+                leaders.insert(next.getLineNo());
+            }
+        }
+    }
+    return leaders;
 }
 // 查找children中以label为标签,ExprType==LabelType的ExprNode
 ExprNode* FuncNode::searchLabel(const string& labelToSearch){
@@ -223,13 +267,65 @@ ExprNode* FuncNode::searchLabel(const string& labelToSearch){
 BlockNode::BlockNode(int id, FuncNode* parent,const RegManager& r, const IdManager& i):Node(BlockNodeType),regManager(r), idManager(i){
     blockId = id;
     funcParent = parent;
-    finalAliveVarSet = set<IdNode*>();
+    lastAliveVarSet = set<IdNode*>();
+};
+
+void BlockNode::addChild(Node* child){
+    Node::addChild(child);
+    ((ExprNode*)child)->setBlockParent(this);
 };
 
 void BlockNode::genCode(){
-    calcFinalAliveVarSet(); 
-    
+    analyzeLiveness();
+    for(auto& expr:children){
+        expr->genCode();
+    }
 }  
+void BlockNode::printCode(){
+    for(auto& expr:children){
+        expr->printCode();
+    }
+}
+// 计算每个孩子Expr的活性变量集合
+void BlockNode::analyzeLiveness(){
+    setSuccForExprs();
+    calcLastAliveVarSet();
+    calcEveryAliveVarSet();
+}
+
+// 设置孩子Expr的后继表达式集合
+void BlockNode::setSuccForExprs(){
+    int l = children.size();
+    for(int i=0;i<l-1;i++){
+        ((ExprNode*)children[i])->addSuccExpr((ExprNode*)children[i+1]);
+    }
+}
+ // 计算Exit时的活性变量集合，是所有在该Block内定值的全局变量，非临时变量，函数参数的集合
+void BlockNode::calcLastAliveVarSet(){
+    for(auto& child:children){
+        ExprNode* expr = (ExprNode*) child;
+        set<IdNode*> candidates;
+        candidates = expr->calcLeftValueVarSet();
+        for(auto& id:candidates){
+            if(id->needSave())
+                lastAliveVarSet.insert(id);
+        }
+    }
+}
+
+// 计算每个孩子的活性变量集合
+void calcEveryAliveVarSet(){
+    int l = children.size();
+    for(int i = l-1;i>=0;i--){
+        ExprNode* expr = (ExprNode*)children[i];
+        expr->calcAliveVarSet();
+    }
+}
+
+set<IdNode*> BlockNode::getLastAliveVarSet(){
+    return lastAliveVarSet;
+}
+
 
 /* ------------------ ExprNode ------------------ */
 ExprNode::ExprNode(ExprType exprType_, string op_, string label_ = string()):Node(ExprNodeType){
@@ -238,9 +334,11 @@ ExprNode::ExprNode(ExprType exprType_, string op_, string label_ = string()):Nod
     label = label_;
     init();
 }
+ExprNode::ExprNode(string label_):ExprNode(LabelType, "", label_){};
 void ExprNode::init(){
     lineNo = 0;
     funcParent = NULL;
+    blockParent = NULL;
     succExprSet = set<ExprNode*>();
     aliveVarSet = set<IdNode*>();
     code = string();
@@ -260,20 +358,39 @@ void ExprNode::setFuncParent(FuncNode* parent){
 void ExprNode::setLineNo(int lineNo_){
     lineNo = lineNo_;
 }
+int ExprNode::getLineNo(){
+    return lineNo;
+}
 // 将succ添加入后继表达式集合succExprs
 void ExprNode::addSuccExpr(ExprNode* succ){
     succExprSet.insert(succ);
 }
 
-set<IdNode*> ExprNode::getAliveVarSet(){
-    return aliveVarSet;
-}
-void ExprNode::setAliveVarSet(const set<IdNode*>& newSet){
-    aliveVarSet = newSet;   
+// 根据 AliveVarSet = (JOIN(V) - left) + right 计算活跃变量集
+void ExprNode::calcAliveVarSet(){
+    set<IdNode*> join, left, right;
+    if(isLastInBlock())
+        join = blockParent->getLastAliveVarSet();
+    else
+        join = calcJoinAliveVarSet();
+    left = calcLeftValueVarSet();
+    right = calcRightValueVarSet();
+    aliveVarSet = set<IdNode*>();
+    for(auto& id:join)
+        aliveVarSet.insert(id);
+    for(auto& id:left)
+        aliveVarSet.erase(id);
+    for(auto& id:right)
+        aliveVarSet.insert(id);
 }
 
-// 得到JOIN(v) = Union[succExprs.aliveVars]
-set<IdNode*> ExprNode::getJoinAliveVarSet(){
+// 只能在后继表达式计算完毕后使用
+bool ExprNode::isLastInBlock(){
+    return succExprSet.size()==0;
+}
+
+// 计算JOIN(v) = Union[succExprs.aliveVars]
+set<IdNode*> ExprNode::calcJoinAliveVarSet(){
     set<IdNode*> joinSet;
     for(auto& succExpr:succExprSet){
         for(auto& aliveVar:succExpr->getAliveVarSet()){
@@ -282,8 +399,13 @@ set<IdNode*> ExprNode::getJoinAliveVarSet(){
     }
     return joinSet;
 }
-// 得到作为右值的id集合
-set<IdNode*> ExprNode::getRightValueVarSet(){
+
+set<IdNode*> ExprNode::getAliveVarSet(){
+    return aliveVarSet;
+}
+
+// 计算作为右值的id集合
+set<IdNode*> ExprNode::calcRightValueVarSet(){
     set<IdNode*> rightValueSet = set<IdNode*>();
     if(exprType==Op2Type||exprType==VisitArrayType||exprType==IfBranchType){
         rightValueSet.insert(getRightValue1());
@@ -304,8 +426,8 @@ set<IdNode*> ExprNode::getRightValueVarSet(){
     else ; // do no thing
     return rightValueSet;
 }
-// 得到作为左值的id集合
-set<IdNode*> ExprNode::getLeftValueVarSet(){
+// 计算作为左值的id集合
+set<IdNode*> ExprNode::calcLeftValueVarSet(){
     set<IdNode*> leftValueSet = set<IdNode*>();
     if(exprType==Op2Type||exprType==Op1Type||exprType==NoOpType||exprType==VisitArrayType||exprType==CallType||exprType==LocalDeclareType)
         leftValueSet.insert(getVar());
@@ -360,6 +482,8 @@ IdNode::IdNode(string name_, bool isGlobal_ = false){
     isGlobal = isGlobal_;
     isArray = false;
     isInteger = false;
+    isPara = (name[0]=='p');
+    isTemp = (name[0]=='t');
     value = length = 0;
     funcParent = NULL;
 }
@@ -369,6 +493,8 @@ IdNode::IdNode(string name_, bool isGlobal_, int length_){
     isGlobal = isGlobal_;
     isArray = true;
     isInteger = false;
+    isPara = false;
+    isTemp = (name[0]=='t');
     length = length_;
     value = 0;
     funcParent = NULL;
@@ -378,6 +504,8 @@ IdNode::IdNode(int value_){
     name = string();
     isArray = isGlobal = false;
     isInteger = true;
+    isPara = false;
+    isTemp = false;
     value = value_;
     length = 0;
     funcParent = NULL;
@@ -406,9 +534,17 @@ bool IdNode::isGlobal(){
 bool IdNode::isInteger(){
     return isInteger;
 }
+bool IdNode::isPara(){
+    return isPara;
+}
+// 退出一个block时，全局非数组变量/函数参数/非临时非数组变量需要保存
+bool IdNode::needSave(){
+    return (isGlobal&&!isArray)||isPara||(!isTemp&&!isInteger&&!isArray)
+}
 void IdNode::setFuncParent(FuncNode* funcParent){
     funcParent = funcParent;
 }
+// 名字相同则相等，若为整数则值相同就相等
 bool IdNode::operator==(const IdNode& another){
     if(isInteger&&another.isInteger)
         return value==another.value;

@@ -87,6 +87,9 @@ class FuncNode:public Node{
         // 将idManager和regManager传递给Block作为初始状态
         void buildBlocks();
 
+        // 返回构建Blocks需要的leader集合
+        set<int> calcLeaders();
+
     public:
         // 用名字和参数个数初始化函数节点，同时注册函数的参数到idManager和regManager
         FuncNode(const string& name_, int paraNum);
@@ -104,18 +107,31 @@ class BlockNode:public Node{
         Regmanager regManager;
         IdManager idManager;
         int blockId;
-        // 所有在该Block内定值的全局变量，非临时变量，函数参数
-        set<IdNode*> finalAliveVarSet;
-        void calcFinalAliveVarSet();
+        // 计算每个孩子Expr的活性变量集合
+        void analyzeLiveness();
+        
+        // 设置孩子Expr的后继表达式集合
+        void setSuccForExprs();
+
+        // 计算Exit时的活性变量集合，是所有在该Block内定值的全局变量，非临时变量，函数参数的集合
+        set<IdNode*> lastAliveVarSet;
+        void calcLastAliveVarSet();
+
+        // 计算每个孩子的活性变量集合
+        void calcEveryAliveVarSet();
 
     public:
         BlockNode(int id, FuncNode* parent, const RegManager& r, const IdManager& i);
 
-        // 生成代码入口，供FuncNode调用
+        virtual void addChild(Node*);
+
+        // 生成代码入口，供FuncNode调用，调用孩子Expr的genCode
         virtual void genCode();
 
-        // 打印代码入口，供FuncNode调用
+        // 打印代码入口，供FuncNode调用，调用孩子Expr的genCode
         virtual void printCode();
+
+        set<IdNode*> getLastAliveVarSet();
 }
 class ExprNode:public Node{
     private:
@@ -123,15 +139,21 @@ class ExprNode:public Node{
         int lineNo;
         FuncNode* funcParent;
         BlockNode* blockParent;
-        // 后继表达式集
-        set<ExprNode*> succExprSet;
-        // 活跃变量集
-        set<IdNode*> aliveVarSet;
+        set<ExprNode*> succExprSet; // 后继表达式集
+        set<IdNode*> aliveVarSet;   // 活跃变量集
         string code;
         string label;
         string op;
-        void init();
 
+        void init();
+        
+        bool isLastInBlock();
+        // 计算JOIN(v) = Union[succExprs.aliveVars]
+        set<IdNode*> calcJoinAliveVarSet();
+        // 计算作为右值的id集合
+        set<IdNode*> calcRightValueVarSet();
+        // 计算作为左值的id集合
+        set<IdNode*> calcLeftValueVarSet();
         IdNode* getVar();
         IdNode* getRightValue();
         IdNode* getRightValue1();
@@ -152,18 +174,15 @@ class ExprNode:public Node{
         void setFuncParent(FuncNode* parent);
         void setBlockParent(BlockNode* parent);
         void setLineNo(int lineNo_);
+        int getLineNo();
 
-        // 将succ添加入后继表达式集合succExprs
+        // 将succ添加入后继表达式集合succExpr
         void addSuccExpr(ExprNode* succ);
+        
+        // 根据 AliveVarSet = (JOIN(V) - left) + right 计算活跃变量集
+        void calcAliveVarSet();
 
         set<IdNode*> getAliveVarSet();
-        void setAliveVarSet(const set<IdNode*>& newSet);
-        // 得到JOIN(v) = Union[succExprs.aliveVars]
-        set<IdNode*> getJoinAliveVarSet();
-        // 得到作为右值的id集合
-        set<IdNode*> getRightValueVarSet();
-        // 得到作为左值的id集合
-        set<IdNode*> getLeftValueVarSet();
 
         // 生成代码存储到code
         virtual void genCode();
@@ -178,6 +197,8 @@ class IdNode:public Node{
         bool isArray;
         bool isGlobal;
         bool isInteger;
+        bool isPara;
+        bool isTemp;
         int value;
         int length;
         FuncNode* funcParent;
@@ -196,6 +217,9 @@ class IdNode:public Node{
         bool isArray();
         bool isGlobal();
         bool isInteger();
+        bool isPara();
+        // 退出一个block时，全局非数组变量/函数参数/非临时非数组变量需要保存
+        bool needSave();
         void setFuncParent(FuncNode* funcParent_);
         
         // 名字相同则相等，若为整数则值相同就相等
