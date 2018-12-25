@@ -10,20 +10,21 @@
 
 using namespace std;
 
+/* ------------------ Node ------------------ */
 Node::Node(NodeType nodeType_):nodeType(nodeType_){
     children = vector<Node*>();
 };
-
 NodeType Node::getNodeType(){
     return nodeType;
 }
 void Node::addChild(Node* child){
     children.push_back(child);
 }
-
 void Node::genCode(){};
 void Node::printCode(){};
 
+
+/* ------------------ RootNode ------------------ */
 RootNode::RootNode():Node(RootNodeType){};
 
 // 调用全局声明和函数的genCode
@@ -70,6 +71,8 @@ void RootNode::printCode(){
     }
 }
 
+
+/* ------------------ GlobalDeclareNode ------------------ */
 // 实时更新为已声明的全局变量表
 IdManager GlobalDeclareNode::globalIdManager = IdManager();
 
@@ -93,6 +96,9 @@ void GlobalDeclareNode::genCode(){
 void GlobalDeclareNode::printCode(){
     out << code;
 }
+
+
+/* ------------------ FuncNode ------------------ */
 // 用名字和参数个数初始化函数节点，同时注册函数的参数到idManager和regManager
 FuncNode::FuncNode(const string& name_,int paraNum_):Node(FuncNodeType){
     name = name_;
@@ -113,6 +119,27 @@ void FuncNode::initPara(){
     regManager.initPara(params);
 
 }
+
+// 生成代码入口，供RootNode调用
+void FuncNode::genCode(){
+    adjustExprsToDirectChild();
+    setExprsLineNo();
+    buildIdManager();
+    buildBlocks();
+    for(auto& child:children)
+        ((BlockNode*)child)->genCode();
+}
+
+// 打印代码入口，供RootNode调用
+void FuncNode::printCode(){
+    out << name + " [" + to_string(paraNum) << "] ["
+     << to_string(regManager.getMemSize()) << "]" << endl; 
+    for(auto& child:children){
+        child->printCode();
+    }
+    out << "end " << name << endl;
+}
+
 // 将子树中所有ExprNode调整为直接孩子，设置ExprNode的FuncParent
 void FuncNode::adjustExprsToDirectChild(){
     vector<Node*> newChildren = vector<Node*>();
@@ -138,6 +165,7 @@ void FuncNode::adjustExprsToDirectChild(){
         ((ExprNode*)child)->setFuncParent(this);
     }
 }
+
 // 从1开始为所有孩子ExprNode标号
 void FuncNode::setExprsLineNo(){
     int lineNo = 1;
@@ -147,6 +175,7 @@ void FuncNode::setExprsLineNo(){
         lineNo++;
     }
 }
+
 // 将孩子中所有的IdNode指针指向idManager中的条目
 // 调用 addIdToManagerIfNotExisted
 // LocalDeclaration的孩子是第一次出现将会被加入idManager
@@ -159,6 +188,7 @@ void FuncNode::buildIdManager(){
         }
     }
 }
+
 // 在idManager中查找id
 // 已存在则返回对应条目指针，不存在则新建条目返回指针
 IdNode* FuncNode::addIdToManagerIfNotExisted(IdNode* id){
@@ -170,39 +200,10 @@ IdNode* FuncNode::addIdToManagerIfNotExisted(IdNode* id){
     return ret;
 }
 
-// 计算每个孩子Expr的活跃变量
-// 调用calSuccForExprs和calAliveVarsForExprs
-void FuncNode::analyzeLiveness(){
-    calSuccForExprs();
-    calAliveVarsForExprs();
-}
+// 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
+// 将idManager和regManager传递给Block作为初始状态
+void FuncNode::buildBlocks(){
 
-// 为所有孩子ExprNode计算后继表达式集
-void FuncNode::calSuccForExprs(){
-    for(int i = 0;i<children.size();i++){
-        ExprNode* child = (ExprNode*)children[i];
-        ExprType childType = child->getExprType();
-        if(childType==IfBranchType){
-            if(i!=children.size()-1){
-                ExprNode* nextChild = (ExprNode*)children[i+1];
-                child->addSuccExpr(nextChild);
-            }
-            string label = child->getLabel();
-            ExprNode* jumpToNode = searchLabel(label);
-            child->addSuccExpr(jumpToNode);
-        }
-        else if(childType==GotoType){
-            string label = child->getLabel();
-            ExprNode* jumpToNode = searchLabel(label);
-            child->addSuccExpr(jumpToNode);      
-        }
-        else{
-            if(i!=children.size()-1){
-                ExprNode* nextChild = (ExprNode*)children[i+1];
-                child->addSuccExpr(nextChild);
-            }
-        }
-    }
 }
 // 查找children中以label为标签,ExprType==LabelType的ExprNode
 ExprNode* FuncNode::searchLabel(const string& labelToSearch){
@@ -216,55 +217,21 @@ ExprNode* FuncNode::searchLabel(const string& labelToSearch){
     assert(false);
     return NULL;
 }
-// 迭代地从后向前扫描更新每个Expr的活跃变量集
-void FuncNode::calAliveVarsForExprs(){
-    bool hasChanged = false;
-    while(true){
-        for(auto it = children.rbegin();it!=children.rend();++it){
-            ExprNode* child = (ExprNode*)(*it);
 
-            // newSet = (join - left) U right
-            set<IdNode*> oldAliveVarSet = child->getAliveVarSet();
-            set<IdNode*> joinAliveVarSet = child->getJoinAliveVarSet();
-            set<IdNode*> leftValueVarSet = child->getLeftValueVarSet();
-            set<IdNode*> rightValueVarSet = child->getRightValueVarSet();
-            
-            set<IdNode*> tmp;
-            set<IdNode*> newAliveVarSet;
-            set_difference(oldAliveVarSet.begin(), oldAliveVarSet.end(), 
-            leftValueVarSet.begin(), leftValueVarSet.end(),tmp);
-            set_union(tmp.begin(),tmp.end(),rightValueVarSet.begin(), 
-            rightValueVarSet.end(), newAliveVarSet);
 
-            child->setAliveVarSet(newAliveVarSet);
+/* ------------------ BlockNode ------------------ */
+BlockNode::BlockNode(int id, FuncNode* parent,const RegManager& r, const IdManager& i):Node(BlockNodeType),regManager(r), idManager(i){
+    blockId = id;
+    funcParent = parent;
+    finalAliveVarSet = set<IdNode*>();
+};
 
-            if(!hasChanged){
-                hasChanged = !equal(newAliveVarSet.begin(), newAliveVarSet.end(), 
-                oldAliveVarSet.begin(), oldAliveVarSet.end());
-            }
-        }
-        if(!hasChanged) break;
-    }
-}
+void BlockNode::genCode(){
+    calcFinalAliveVarSet(); 
+    
+}  
 
-// 生成代码入口
-void FuncNode::genCode(){
-    adjustExprsToDirectChild();
-    setExprsLineNo();
-    buildIdManager();
-    analyzeLiveness();
-    for(auto& child:children)
-        ((ExprNode*)child)->genCode();
-}
-// 打印代码入口
-void FuncNode::printCode(){
-    out << name + " [" + to_string(paraNum) << "] ["
-     << to_string(regManager.getMemSize()) << "]" << endl; 
-    for(auto& child:children){
-        child->printCode();
-    }
-    out << "end " << name << endl;
-}
+/* ------------------ ExprNode ------------------ */
 ExprNode::ExprNode(ExprType exprType_, string op_, string label_ = string()):Node(ExprNodeType){
     exprType = exprType_;
     op = op_;
@@ -385,6 +352,8 @@ void ExprNode::printCode(){
     out << code;
 }
 
+
+/* ------------------ IdNode ------------------ */
 // 一般变量的构造函数
 IdNode::IdNode(string name_, bool isGlobal_ = false){
     name = name_;
@@ -414,30 +383,30 @@ IdNode::IdNode(int value_){
     funcParent = NULL;
 }
 // 得到目标代码的全局变量名，将T改为v
-string getTiggerName(){
+string IdNode::getTiggerName(){
     assert(isGlobal);
     string tiggerName = name;
     tiggerName[0] = 'v';
     return tiggerName;
 }
-int getLength(){
+int IdNode::getLength(){
     assert(isArray);
     return length;
 }
-int getValue(){
+int IdNode::getValue(){
     assert(isInteger);
     return value;
 }
-bool isArray(){
+bool IdNode::isArray(){
     return isArray;
 }
-bool isGlobal(){
+bool IdNode::isGlobal(){
     return isGlobal;
 }
-bool isInteger(){
+bool IdNode::isInteger(){
     return isInteger;
 }
-void setFuncParent(FuncNode* funcParent){
+void IdNode::setFuncParent(FuncNode* funcParent){
     funcParent = funcParent;
 }
 bool IdNode::operator==(const IdNode& another){

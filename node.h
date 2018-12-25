@@ -10,7 +10,7 @@
 
 using namespace std;
 
-enum NodeType{RootNodeType, GlobalDeclareNodeType, FuncNodeType, ExprNodeType, OtherNodeType, EmptyNodeType, IdNodeType, BlockNode};
+enum NodeType{RootNodeType, GlobalDeclareNodeType, FuncNodeType, ExprNodeType, OtherNodeType, EmptyNodeType, IdNodeType, BlockNodeType};
 enum ExprType{Op2Type, Op1Type, NoOpType, StoreArrayType, VisitArrayType, 
 IfBranchType, GotoType, LabelType, CallType, ReturnType,LocalDeclareType};
 
@@ -61,7 +61,7 @@ class FuncNode:public Node{
         // 初始化为当前的globalIdManager
         IdManager idManager;
 
-        // 按参数个数注册参数到idManager和regManager
+        // 按参数个数注册参数到idManager和regManager,构造函数调用
         void initPara();
 
         // 将子树中所有ExprNode调整为直接孩子，设置ExprNode的FuncParent
@@ -80,31 +80,21 @@ class FuncNode:public Node{
         // 已存在则返回对应条目指针，不存在则新建条目返回指针
         IdNode* addIdToManagerIfNotExisted(IdNode* id);
 
-        // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
-        // 将idManager和regManager传递给Block作为初始状态
-        void buildBlocks();
-
-        // 计算每个孩子Expr的活跃变量
-        // 调用calSuccForExprs和calAliveVarsForExprs
-        void analyzeLiveness();
-
-        // 为所有孩子ExprNode计算后继表达式集
-        void calSuccForExprs();
-        
         // 查找children中以label为标签,ExprType==LabelType的ExprNode
         ExprNode* searchLabel(const string& label);
 
-        // 迭代地从后向前扫描更新每个Expr的活跃变量集
-        void calAliveVarsForExprs();
+        // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
+        // 将idManager和regManager传递给Block作为初始状态
+        void buildBlocks();
 
     public:
         // 用名字和参数个数初始化函数节点，同时注册函数的参数到idManager和regManager
         FuncNode(const string& name_, int paraNum);
 
-        // 生成代码入口
+        // 生成代码入口，供RootNode调用
         virtual void genCode();
 
-        // 打印代码入口
+        // 打印代码入口，供RootNode调用
         virtual void printCode();
 
 };
@@ -119,8 +109,13 @@ class BlockNode:public Node{
         void calcFinalAliveVarSet();
 
     public:
-        BlockNode(int id, const RegManager& r, const IdManager& i);
+        BlockNode(int id, FuncNode* parent, const RegManager& r, const IdManager& i);
 
+        // 生成代码入口，供FuncNode调用
+        virtual void genCode();
+
+        // 打印代码入口，供FuncNode调用
+        virtual void printCode();
 }
 class ExprNode:public Node{
     private:
