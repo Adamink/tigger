@@ -11,8 +11,8 @@
 using namespace std;
 
 enum NodeType{RootNodeType, GlobalDeclareNodeType, FuncNodeType, ExprNodeType, OtherNodeType, EmptyNodeType, IdNodeType};
-enum ExprType{LocalDeclareType, Op2Type, Op1Type, NoOpType, StoreArrayType, VisitArrayType, 
-IfBranchType, GotoType, LabelType, CallType, ReturnType};
+enum ExprType{Op2Type, Op1Type, NoOpType, StoreArrayType, VisitArrayType, 
+IfBranchType, GotoType, LabelType, CallType, ReturnType,LocalDeclareType};
 
 class Node{
     protected:
@@ -119,13 +119,17 @@ class ExprNode:public Node{
         void init();
 
         IdNode* getVar();
+        IdNode* getRightValue();
         IdNode* getRightValue1();
         IdNode* getRightValue2();
+        // 只被CallType使用
+        set<IdNOde*> getParas();
         // 得到存储左值的寄存器
         void getReg();
         
     public:
-        ExprNode(ExprType exprType_,string op_);
+        ExprNode(ExprType exprType_,string op_, string label_ = string());
+        // 只为LabelType使用
         ExprNode(string label_);
         ExprType getExprType();
 
@@ -145,10 +149,6 @@ class ExprNode:public Node{
         set<IdNode*> getRightValueVarSet();
         // 得到作为左值的id集合
         set<IdNode*> getLeftValueVarSet();
-        
-        void addAliveVar(IdNode* var);
-        void removeAliveVar(IdNode* var);
-
 
         // 生成代码存储到code
         virtual void genCode();

@@ -130,6 +130,7 @@ void FuncNode::adjustExprsToDirectChild(){
                 bfsQueue.push_back(child);
             }
         }
+        // else do nothing
     }
     children = newChildren;
     for(auto& child:children){
@@ -230,13 +231,16 @@ void FuncNode::calAliveVarsForExprs(){
             
             set<IdNode*> tmp;
             set<IdNode*> newAliveVarSet;
-            set_difference(oldAliveVarSet.begin(), oldAliveVarSet.end(), leftValueVarSet.begin(), leftValueVarSet.end(),tmp);
-            set_union(tmp.begin(),tmp.end(),rightValueVarSet.begin(), rightValueVarSet.end(), newAliveVarSet);
+            set_difference(oldAliveVarSet.begin(), oldAliveVarSet.end(), 
+            leftValueVarSet.begin(), leftValueVarSet.end(),tmp);
+            set_union(tmp.begin(),tmp.end(),rightValueVarSet.begin(), 
+            rightValueVarSet.end(), newAliveVarSet);
 
             child->setAliveVarSet(newAliveVarSet);
 
             if(!hasChanged){
-                hasChanged = !equal(newAliveVarSet.begin(), newAliveVarSet.end(), oldAliveVarSet.begin(), oldAliveVarSet.end());
+                hasChanged = !equal(newAliveVarSet.begin(), newAliveVarSet.end(), 
+                oldAliveVarSet.begin(), oldAliveVarSet.end());
             }
         }
         if(!hasChanged) break;
@@ -254,19 +258,16 @@ void FuncNode::genCode(){
 }
 // 打印代码入口
 void FuncNode::printCode(){
-    out << name + " [" + to_string(paraNum) << "] [" << to_string(regManager.getMemSize()) << "]" << endl; 
+    out << name + " [" + to_string(paraNum) << "] ["
+     << to_string(regManager.getMemSize()) << "]" << endl; 
     for(auto& child:children){
         child->printCode();
     }
     out << "end " << name << endl;
 }
-ExprNode::ExprNode(ExprType exprType_, string op_):Node(ExprNodeType){
+ExprNode::ExprNode(ExprType exprType_, string op_, string label_ = string()):Node(ExprNodeType){
     exprType = exprType_;
     op = op_;
-    init();
-}
-ExprNode::ExprNode(string label_):Node(ExprNodeType){
-    exprType = LabelType;
     label = label_;
     init();
 }
@@ -276,8 +277,6 @@ void ExprNode::init(){
     succExprSet = set<ExprNode*>();
     aliveVarSet = set<IdNode*>();
     code = string();
-    label = string();
-    op = string();
 }
 ExprType ExprNode::getExprType(){
     return exprType;
@@ -323,17 +322,123 @@ set<IdNode*> ExprNode::getRightValueVarSet(){
         rightValueSet.insert(getRightValue1());
         rightValueSet.insert(getRightValue2());
     }
-    else if(exprType==Op1Type||exprType==NoOpType){
-        rightValueSet.insert(getRightValue1());
+    else if(exprType==Op1Type||exprType==NoOpType||
+    exprType==ReturnType){
+        rightValueSet.insert(getRightValue());
     }
     else if(exprType==StoreArrayType){
+        rightValueSet.insert(getVar());
         rightValueSet.insert(getRightValue1());
-        // not finished yet
+        rightValueSet.insert(getRightValue2());
     }
+    else if(exprType==CallType){
+        rightValueSet = getParas();
+    }
+    else ; // do no thing
+    return rightValueSet;
 }
 // 得到作为左值的id集合
 set<IdNode*> ExprNode::getLeftValueVarSet(){
+    set<IdNode*> leftValueSet = set<IdNode*>();
+    if(exprType==Op2Type||exprType==Op1Type||exprType==NoOpType||exprType==VisitArrayType||exprType==CallType||exprType==LocalDeclareType)
+        leftValueSet.insert(getVar());
+    return leftValueSet;
+}
+IdNode* ExprNode::getVar(){
+    assert(exprType==Op2Type||exprType==Op1Type
+     ||exprType==NoOpType||exprType==StoreArrayType||exprType==VisitArrayType||exprType==CallType||exprType==LocalDeclareType);
+    return (IdNode*)children[0]; // 需要检查
+}
+IdNode* ExprNode::getRightValue(){
+    assert(exprType==Op1Type||exprType==NoOpType||exprType==ReturnType)
+    if(exprType==Op1Type||exprType==NoOpType)
+        return (IdNode*)children[1];
+    else //(exprType==ReturnType)
+        return (IdNode*)children[0];
+}
+IdNode* ExprNode::getRightValue1(){
+    assert(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType||exprType==IfBranchType)
+    if(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType)
+        return (IdNode*)children[1];
+    else //(exprType==IfBranchType)
+        return (IdNode*)children[0];
+}   
+IdNode* ExprNode::getRightValue2(){
+    assert(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType||exprType==IfBranchType)
+    if(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType)
+        return (IdNode*)children[2];
+    else //(exprType==IfBranchType)
+        return (IdNode*)children[1];
+}
+// 得到CallFunc的所有参数节点，未完成
+set<IdNode*> ExprNode::getParas(){
+    int length = children.size();
+    // 排除左值children[0]
+    for(int i = 1;i<l;i++){
 
+    }
+}
+void ExprNode::genCode(){
+
+}
+void ExprNode::printCode(){
+    out << code;
+}
+
+// 一般变量的构造函数
+IdNode::IdNode(string name_, bool isGlobal_ = false){
+    name = name_;
+    isGlobal = isGlobal_;
+    isArray = false;
+    isInteger = false;
+    value = length = 0;
+    funcParent = NULL;
+}
+// 数组的构造函数
+IdNode::IdNode(string name_, bool isGlobal_, int length_){
+    name = name_;
+    isGlobal = isGlobal_;
+    isArray = true;
+    isInteger = false;
+    length = length_;
+    value = 0;
+    funcParent = NULL;
+}
+// 整数的构造函数
+IdNode::IdNode(int value_){
+    name = string();
+    isArray = isGlobal = false;
+    isInteger = true;
+    value = value_;
+    length = 0;
+    funcParent = NULL;
+}
+// 得到目标代码的全局变量名，将T改为v
+string getTiggerName(){
+    assert(isGlobal);
+    string tiggerName = name;
+    tiggerName[0] = 'v';
+    return tiggerName;
+}
+int getLength(){
+    assert(isArray);
+    return length;
+}
+int getValue(){
+    assert(isInteger);
+    return value;
+}
+bool isArray(){
+    return isArray;
+}
+bool isGlobal(){
+    return isGlobal;
+}
+bool isInteger(){
+    return isInteger;
+}
+void setFuncParent(FuncNode* funcParent){
+    funcParent = funcParent;
 }
 bool IdNode::operator==(const IdNode& another){
     if(isInteger&&another.isInteger)
