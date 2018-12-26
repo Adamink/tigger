@@ -74,12 +74,12 @@ void RootNode::printCode(){
 
 /* ------------------ GlobalDeclareNode ------------------ */
 // 实时更新为已声明的全局变量表
-IdManager GlobalDeclareNode::globalIdManager = IdManager();
+IdManager GlobalDeclareNode::globalManager = Manager();
 
-// 同时将id作为孩子和更新globalIdManager
+// 同时将id作为孩子和更新globalManager
 GlobalDeclareNode::GlobalDeclareNode(IdNode* id):Node(GlobalDeclareNodeType){
     addChild(id);
-    globalIdManager.addId(id);
+    globalManager.addId(id);
 }
 
 // 生成全局声明代码
@@ -103,21 +103,19 @@ void GlobalDeclareNode::printCode(){
 FuncNode::FuncNode(const string& name_,int paraNum_):Node(FuncNodeType){
     name = name_;
     paraNum = paraNum_;
-    regManager = RegManager();
-    idManager = GlobalDeclareNode::globalIdManager;
-    initPara();
+    initManager();
 }
-// 按参数个数注册参数到idManager和regManager
-void FuncNode::initPara(){
+
+// 按参数个数注册参数到manager,构造函数调用
+void FuncNode::initManager(GlobalDeclareNode::globalManager){
+    manager = Manager(globalManager);
     vector<IdNode*> params = vector<IdNode*>();
     for(int i=0;i<paraNum;i++){
         string name = "p" + to_string(i);
         IdNode* para_i = new IdNode(name, false);
-        idManager.addId(para_i);
         params.push_back(para_i);
     }
-    regManager.initPara(params);
-
+    manager.initPara(params);
 }
 
 // 生成代码入口，供RootNode调用
@@ -133,7 +131,7 @@ void FuncNode::genCode(){
 // 打印代码入口，供RootNode调用
 void FuncNode::printCode(){
     out << name + " [" + to_string(paraNum) << "] ["
-     << to_string(regManager.getMemSize()) << "]" << endl; 
+     << to_string(manager.getMemSize()) << "]" << endl; 
     for(auto& child:children){
         child->printCode();
     }
@@ -176,7 +174,7 @@ void FuncNode::setExprsLineNo(){
     }
 }
 
-// 将孩子中所有的IdNode指针指向idManager中的条目
+// 将孩子中所有的IdNode指针指向manager中的条目
 // 调用 addIdToManagerIfNotExisted
 // LocalDeclaration的孩子是第一次出现将会被加入idManager
 // 遇到的Int常量在其它表达式中出现也会被不重复地加入idManager
@@ -192,16 +190,15 @@ void FuncNode::buildIdManager(){
 // 在idManager中查找id
 // 已存在则返回对应条目指针，不存在则新建条目返回指针
 IdNode* FuncNode::addIdToManagerIfNotExisted(IdNode* id){
-    IdNode* ret = idManager.findId(id);
+    IdNode* ret = manager.findId(id);
     if(ret!=NULL)
         return ret;
     else 
-        ret = idManager.addId(id);
+        ret = manager.addId(id);
     return ret;
 }
 
 // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
-// 将idManager和regManager传递给Block作为初始状态
 void FuncNode::buildBlocks(){
     int blockId = 0;
     set<int> leaders;
@@ -213,7 +210,7 @@ void FuncNode::buildBlocks(){
     // 根据leaders分块
     while(!workList.empty()){
         blockId++;
-        BlockNode* block = new BlockNode(blockId, this, regManager, idManager);
+        BlockNode* block = new BlockNode(blockId, this);
         int firstExpr = *(workList.begin());
         workList.erase(firstExpr);
         block.addChild(children[firstExpr]);
@@ -264,7 +261,8 @@ ExprNode* FuncNode::searchLabel(const string& labelToSearch){
 
 
 /* ------------------ BlockNode ------------------ */
-BlockNode::BlockNode(int id, FuncNode* parent,const RegManager& r, const IdManager& i):Node(BlockNodeType),regManager(r), idManager(i){
+BlockNode::BlockNode(int id, FuncNode* parent):
+ Node(BlockNodeType){
     blockId = id;
     funcParent = parent;
     lastAliveVarSet = set<IdNode*>();
@@ -328,7 +326,8 @@ set<IdNode*> BlockNode::getLastAliveVarSet(){
 
 
 /* ------------------ ExprNode ------------------ */
-ExprNode::ExprNode(ExprType exprType_, string op_, string label_ = string()):Node(ExprNodeType){
+ExprNode::ExprNode(ExprType exprType_, string op_, 
+ string label_ = string()):Node(ExprNodeType){
     exprType = exprType_;
     op = op_;
     label = label_;
@@ -429,13 +428,16 @@ set<IdNode*> ExprNode::calcRightValueVarSet(){
 // 计算作为左值的id集合
 set<IdNode*> ExprNode::calcLeftValueVarSet(){
     set<IdNode*> leftValueSet = set<IdNode*>();
-    if(exprType==Op2Type||exprType==Op1Type||exprType==NoOpType||exprType==VisitArrayType||exprType==CallType||exprType==LocalDeclareType)
+    if(exprType==Op2Type||exprType==Op1Type||exprType==NoOpType
+     ||exprType==VisitArrayType||exprType==CallType
+     ||exprType==LocalDeclareType)
         leftValueSet.insert(getVar());
     return leftValueSet;
 }
 IdNode* ExprNode::getVar(){
-    assert(exprType==Op2Type||exprType==Op1Type
-     ||exprType==NoOpType||exprType==StoreArrayType||exprType==VisitArrayType||exprType==CallType||exprType==LocalDeclareType);
+    assert(exprType==Op2Type||exprType==Op1Type||exprType==NoOpType
+     ||exprType==StoreArrayType||exprType==VisitArrayType
+     ||exprType==CallType||exprType==LocalDeclareType);
     return (IdNode*)children[0]; // 需要检查
 }
 IdNode* ExprNode::getRightValue(){
@@ -446,14 +448,16 @@ IdNode* ExprNode::getRightValue(){
         return (IdNode*)children[0];
 }
 IdNode* ExprNode::getRightValue1(){
-    assert(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType||exprType==IfBranchType)
+    assert(exprType==Op2Type||exprType==StoreArrayType
+     ||exprType==VisitArrayType||exprType==IfBranchType)
     if(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType)
         return (IdNode*)children[1];
     else //(exprType==IfBranchType)
         return (IdNode*)children[0];
 }   
 IdNode* ExprNode::getRightValue2(){
-    assert(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType||exprType==IfBranchType)
+    assert(exprType==Op2Type||exprType==StoreArrayType
+    ||exprType==VisitArrayType||exprType==IfBranchType)
     if(exprType==Op2Type||exprType==StoreArrayType||exprType==VisitArrayType)
         return (IdNode*)children[2];
     else //(exprType==IfBranchType)

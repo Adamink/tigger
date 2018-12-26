@@ -5,8 +5,7 @@
 #include <string>
 #include <set>
 
-#include "idmanager.h"
-#include "regmanager.h"
+#include "manager.h"
 
 using namespace std;
 
@@ -41,9 +40,9 @@ class GlobalDeclareNode:public Node{
         string code;
     public:
         // 实时更新为已声明的全局变量表
-        static IdManager globalIdManager;
+        static Manager globalManager;
 
-        // 同时将id作为孩子和更新globalIdManager
+        // 同时将id作为孩子和更新globalManager
         GlobalDeclareNode(IdNode* id);
 
         // 生成全局声明代码
@@ -61,8 +60,11 @@ class FuncNode:public Node{
         // 初始化为当前的globalIdManager
         IdManager idManager;
 
-        // 按参数个数注册参数到idManager和regManager,构造函数调用
-        void initPara();
+        //
+        Manager manager;
+
+        // 按参数个数注册参数到manager,构造函数调用
+        void initManager();
 
         // 将子树中所有ExprNode调整为直接孩子，设置ExprNode的FuncParent
         void adjustExprsToDirectChild();
@@ -84,7 +86,6 @@ class FuncNode:public Node{
         ExprNode* searchLabel(const string& label);
 
         // 构建Blocks，将Expr孩子分配给Blocks, 并将Blocks作为孩子并分配id
-        // 将idManager和regManager传递给Block作为初始状态
         void buildBlocks();
 
         // 返回构建Blocks需要的leader集合
@@ -104,8 +105,6 @@ class FuncNode:public Node{
 class BlockNode:public Node{
     private:
         FuncNode* funcParent;
-        Regmanager regManager;
-        IdManager idManager;
         int blockId;
         // 计算每个孩子Expr的活性变量集合
         void analyzeLiveness();
@@ -121,7 +120,7 @@ class BlockNode:public Node{
         void calcEveryAliveVarSet();
 
     public:
-        BlockNode(int id, FuncNode* parent, const RegManager& r, const IdManager& i);
+        BlockNode(int id, FuncNode* parent);
 
         virtual void addChild(Node*);
 
