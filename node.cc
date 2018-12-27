@@ -115,7 +115,7 @@ void FuncNode::initManager(GlobalDeclareNode::globalManager){
         IdNode* para_i = new IdNode(name, false);
         params.push_back(para_i);
     }
-    manager.initPara(params);
+    manager.setParams(params);
 }
 
 // 生成代码入口，供RootNode调用
@@ -514,11 +514,16 @@ IdNode::IdNode(int value_){
     length = 0;
     funcParent = NULL;
 }
-// 得到目标代码的全局变量名，将T改为v
+// 得到目标代码的Tigger名，全局变量将T改为v
 string IdNode::getTiggerName(){
-    assert(isGlobal);
-    string tiggerName = name;
-    tiggerName[0] = 'v';
+    string tiggerName;
+    if(isGlobal){
+        tiggerName = name;
+        tiggerName[0] = 'v';
+    }
+    else{
+        tiggerName = name;
+    }
     return tiggerName;
 }
 int IdNode::getLength(){
@@ -541,9 +546,12 @@ bool IdNode::isInteger(){
 bool IdNode::isPara(){
     return isPara;
 }
+bool IdNode::isLocal(){
+    return !isGlobal&&!isInteger;
+}
 // 退出一个block时，全局非数组变量/函数参数/非临时非数组变量需要保存
 bool IdNode::needSave(){
-    return (isGlobal&&!isArray)||isPara||(!isTemp&&!isInteger&&!isArray)
+    return (isGlobal&&!isArray)||isPara||(!isTemp&&!isInteger&&!isArray);
 }
 void IdNode::setFuncParent(FuncNode* funcParent){
     funcParent = funcParent;

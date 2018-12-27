@@ -215,6 +215,7 @@ class IdNode:public Node{
         int getValue();
         bool isArray();
         bool isGlobal();
+        bool isLocal();
         bool isInteger();
         bool isPara();
         // 退出一个block时，全局非数组变量/函数参数/非临时非数组变量需要保存
