@@ -118,6 +118,10 @@ void FuncNode::initManager(GlobalDeclareNode::globalManager){
     manager.setParams(params);
 }
 
+Manager* FuncNode::getManager(){
+    return &manager;
+}
+
 // 生成代码入口，供RootNode调用
 void FuncNode::genCode(){
     adjustExprsToDirectChild();
@@ -472,7 +476,82 @@ set<IdNode*> ExprNode::getParas(){
     }
 }
 void ExprNode::genCode(){
+    /*switch(exprType){
+        Passer passer;
 
+        case Op2Type:
+        passer = getPasser();
+        getReg(passer);
+        code += passer.varRegName + " = " + passer.rightValue1RegName + " " + op + " " + passer.rightValue2Regname + "\n";
+        break;
+
+        case Op1Type:
+        passer = getPasser();
+        getReg(passer);
+        code += passer.varRegName + " = " + op +  passer.rightValue1Regname + " \n";
+        break;
+
+        case NoOpType:
+        passer = getPasser();
+        getReg(passer);
+        break;
+
+        case StoreArrayType:
+        passer = getPasser();
+        getReg(passer);
+        // rightValue1是整数只需要一句代码
+        if(rightValue1->isInteger())
+            code += passer.varRegName + "[" + to_string(rightValue1->getValue()) + "] = " + passer.rightValue2RegName + "\n";
+        // rightValue1是符号两句代码
+        // a[t] = b, varReg:a, rightValue1Reg:t, rightValue2Reg:b, tmpReg: a + t
+        // 也许改eeyore比较好，将这样的表达式拆成两句
+        else{
+            code += passer.tmpRegName + " = " + passer.varRegName + " + " + passer.rightValue1RegName + "\n";   
+            code += passer.tmpRegName + "[0] = " + passer.rightValue2RegName + "\n";
+        }
+        break;
+
+        case VisitArrayType:
+        IdNode* var = getVar();
+        IdNode* rightValue1 = getRightValue1();
+        IdNode* rightValue2 = getRightValue2();
+        passer = Passer(VisitArrayType, var, rightValue1, rightValue2);
+        getReg(passer);
+
+        if(rightValue2->isInteger())
+            code += passer.varRegName + " = " + passer.rightValue1RegName + "[" + to_string(rightValue2->getValue()) + "]" + "\n";
+        else{
+            code += passer.tmpRegName + " = " + passer.rightValue1RegName + " + " + passer.rightValue2RegName + "\n";
+            code += passer.varRegName + " = " + passer.tmpRegName + "[0]\n";
+        }
+        break;
+
+        case IfBranchType:
+
+    }*/
+    Passer passer = calcPasser();
+    Manager* manager = funcParent->getManager();
+    code += manager->getReg(passer);
+}
+Passer ExprNode::calcPasser(){
+    Passer passer;
+    switch(exprType){
+
+        case Op2Type:
+        case StoreArrayType:
+        case VisitArrayType:
+        IdNode* var = getVar();
+        IdNode* rightValue1 = getRightValue1();
+        IdNode* rightValue2 = getRightValue2();
+        passer = Passer(exprType, var, rightValue1, rightValue2);
+        break;
+
+        case Op1Type:
+        case NoOpType:
+        IdNode* var = getVar();
+        IdNode* rightValue = getRightValue();
+        passer = Passer(exprType, var, rightValue, NULL);
+    }
 }
 void ExprNode::printCode(){
     out << code;

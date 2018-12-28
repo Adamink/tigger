@@ -6,6 +6,7 @@
 #include <set>
 
 #include "manager.h"
+#include "passer.h"
 
 using namespace std;
 
@@ -54,13 +55,6 @@ class FuncNode:public Node{
     private:
         string name;
         int paraNum;
-        // 管理内存和寄存器
-        RegManager regManager;
-
-        // 初始化为当前的globalIdManager
-        IdManager idManager;
-
-        //
         Manager manager;
 
         // 按参数个数注册参数到manager,构造函数调用
@@ -100,6 +94,8 @@ class FuncNode:public Node{
 
         // 打印代码入口，供RootNode调用
         virtual void printCode();
+
+        Manager* getManager();
 
 };
 class BlockNode:public Node{
@@ -158,10 +154,9 @@ class ExprNode:public Node{
         IdNode* getRightValue1();
         IdNode* getRightValue2();
         // 只被CallType使用
-        set<IdNOde*> getParas();
-        // 得到存储左值的寄存器
-        void getReg();
-        
+        set<IdNode*> getParas();
+        void getReg(Passer& passer);
+        Passer calcPasser();
     public:
         ExprNode(ExprType exprType_,string op_, string label_ = string());
         // 只为LabelType使用
@@ -188,7 +183,6 @@ class ExprNode:public Node{
 
         // 打印代码到标准输出
         virtual void printCode();
-
 };
 class IdNode:public Node{
     private:

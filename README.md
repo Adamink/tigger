@@ -55,7 +55,8 @@ class ExprNode:public Node{
     set<ExprNode*> succExprs;
     public:
         // 得到JOIN(v) = Union[succExprs.aliveVars]
-        getJoinAliveVars();
+        set<IdNode*> getJoinAliveVars();
+        setAliveVars()
 };
 class IdNode:public Node{
     private:
