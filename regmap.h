@@ -1,12 +1,15 @@
 #ifndef REGMAP_H
 #define REGMAP_H
 
+#include <set>
 #include <map>
 #include <string>
 
 using namespace std;
 const int regNum = 27;
 const int paraRegStart = 0;
+const int paraRegEnd = 7;
+const int zeroReg =  26;
 const int tmpReg = 13;
 const map<int, string> regMap{
 {0, "a0"},

@@ -30,11 +30,22 @@ IdNode* Manager::addId(IdNode* id){
     idTable[id];
 }
 // 将params添加到idTable，并load到对应reg
+// 设置regToSearch
 void Manager::setParams(vector<IdNode*> params){
     for(int i = 0;i<params.size();i++){
         addId(params[i]);
         int locate = i + paraRegStart;
         loadIdToReg(params[i], locate);
+    }
+    calcRegToSearch(params.size());
+}
+// 得到要搜索的reg集合，去掉tmpReg,zeroReg和paraReg
+void Manager::calcRegToSearch(int paraNum){
+    for(int reg = 0;reg < regNum; reg++){
+        if(reg==tmpReg) continue;
+        if(reg>=paraRegStart&&reg<paraRegStart + paraNum) continue; 
+        if(reg==zeroReg) continue;
+        regToSearch.insert(reg);     
     }
 }
 
@@ -201,48 +212,238 @@ void makeIdShareReg(IdNode* id, int reg){
     addIdToReg(id, reg);
 }
 
+// 保存reg中的id,要求id在aliveVarSet中
+string Manager::saveIdInReg(int reg){
+    string code = string();
+    for(auto& id:regTable[reg]){
+        if(expr->isAlive(id)){
+            code += storeIdToMem(id);
+        }
+    }
+    return code;
+}
 
-string Manager::genCode(ExprNode* expr){
+string Manager::genCode(ExprNode* expr_){
     string code;
+    expr = expr_
     switch(expr->getExprType()){
         case Op2Type:
-            // x = y + z
+            // x = y op z
+            IdNode* x = expr->getVar();
             IdNode* y = expr->getRightValue1();
             IdNode* z = expr->getRightValue2();
-            int y_locate;
-            y_locate = findInWhichReg(y);
+            bool ifInteger = swapIfInteger(y,z);
+            string op = expr->getOp();
+            bool couldAbbr = ifInteger && (op == "+" || op == "<");
+            int y_locate = findInWhichReg(y);
             if(y_locate==-1){
-
+                y_locate = pickReg();
+                code += saveIdInReg(y_locate);
+                code += loadIdToReg(y, y_locate);
             }
+            int z_locate = findInWhichReg(z);
+            if(z_locate==-1){
+                if(couldAbbr) break;
+                if(ifInteger&&z->getValue()==0){
+                    z_locate = zeroReg;
+                    makeIdShareReg(z, z_locate);
+                    break;
+                }
+                banRegToSearch(y_locate);
+                z_locate = pickReg();
+                restoreRegToSearch(y_locate);
+                code += saveIdInReg(z_locate);
+                code += loadIdToReg(z, z_locate);
+            }
+            int x_locate = findInWhichReg(x);
+            if(x_locate==-1){
+                // y的寄存器可以复用
+                if(!expr->isAliveNext(y)){
+                    x_locate = y_locate;
+                    // if x==y, also ok
+                    makeIdShareReg(x, x_locate);
+                    break;
+                }
+                // z在寄存器中且可以复用
+                if(z_locate!=-1&&!expr->isAliveNext(z)){
+                    x_locate = z_locate;
+                    makeIdShareReg(x, x_locate);
+                    break;
+                }
+                // 给x分配寄存器
+                banRegToSearch(y_locate, z_locate);
+                x_locate = pickReg();
+                restoreRegToSearch(y_locate, z_locate);
+                code += saveIdInReg(x_locate);
+                code += loadIdToReg(x, x_locate);
+            }
+            if(couldAbbr)
+                code += regMap[x_locate] + " = " + regMap[y_locate] + " "
+                 + op + " " + to_string(z->getValue()) + "\n";
+            else    
+                code += regMap[x_locate] + " = " + regMap[y_locate] + " "
+                 + op + " " + regMap[z_locate] + "\n";
 
+        break;
         case Op1Type:
+            // x = op y, op = ! or -
+            IdNode* x = expr->getVar();
+            IdNode* y = expr->getRightValue();
+            string op = expr->getOp();
+            int y_locate = findInWhichReg(y);
+            if(y_locate==-1){
+                if(y->isInteger()&&y->getValue()==0){
+                    y_locate = zeroReg;
+                    makeIdShareReg(y, zeroReg);
+                    break;
+                }
+                y_locate = pickReg();
+                code += saveIdInReg(y_locate);
+                code += loadIdToReg(y, y_locate);
+            }
+            int x_locate = findInWhichReg(x);
+            if(x_locate==-1){
+                // y的寄存器可以复用
+                if(!expr->isAliveNext(y)){
+                    x_locate = y_locate;
+                    makeIdShareReg(x, x_locate);
+                    break;
+                }
+                // 给x分配寄存器
+                banRegToSearch(y_locate);
+                x_locate = pickReg();
+                restoreRegToSearch(y_locate);
+                code += saveIdInReg(x_locate);
+                code += loadIdToReg(x, x_locate);
+            }
+            code += regMap[x_locate] + " = " + op + " " + regMap[y_locate] + "\n";
+        break;
         case NoOpType:
+            // x = y
+            IdNode* x = expr->getVar();
+            IdNode* y = expr->getRightValue();
+            int y_locate = findInWhichReg(y);
+            if(y_locate==-1){
+                if(y->isInteger()&&y->getValue()==0){
+                    y_locate = zeroReg;
+                    makeIdShareReg(y, zeroReg);
+                    break;
+                }
+                y_locate = pickReg();
+                code += saveIdInReg(y_locate);
+                code += loadIdToReg(y, y_locate);
+            }
+            makeIdShareReg(x, y_locate);
+        break;
         case StoreArrayType:
+            // x [y] = z, y could be var, then let t = x + y
+            // t[0] = z
+            IdNode* x = expr->getVar();
+            IdNode* y = expr->getRightValue1();
+            IdNode* z = expr->getRightValue2();
+            if(y->isInteger()){
+                int x_locate = findInWhichReg(x);
+                if(x_locate==-1){
+                    x_locate = pickReg();
+                    code += saveInReg(x_locate);
+                    code += loadIdToReg(x, x_locate);
+                }
+                int z_locate = findInWhichReg(z);
+                if(z_locate==-1){
+                    if(z->isInteger()&&z->getValue()==0){
+                        z_locate = zeroReg;
+                        makeIdShareReg(z, zeroReg);
+                        break;
+                    }
+                    banRegToSearch(x_locate);
+                    z_locate = pickReg();
+                    restoreRegToSearch(x_locate);
+                    code += saveInReg(z_locate);
+                    code += loadIdToReg(z, z_locate);
+                }
+                code += regMap[x_locate] + "[" + to_string(y->getValue()) + "] = "
+                 + regMap[z_locate] + "\n";
+            }
+            else{
+                int x_locate = findInWhichReg(x);
+                if(x_locate==-1){
+                    x_locate = pickReg();
+                    code += saveInReg(x_locate);
+                    code += loadIdToReg(x, x_locate);
+                }
+                int y_locate = findInWhichReg(y);
+                if(y_locate==-1){
+                    
+                }
+            }
+        break;
         case VisitArrayType:
+        break;
         case IfBranchType:
+        break;
         case GotoType:
+        break;
         case LabelType:
+        break;
         case CallType:
+        break;
         case ReturnType:
+        break;
         case LocalDeclareType:
+        break;
     }
 }
-
+// 如果yz中有整数返回true
+// 并将顺序调整为整数在后
+bool swapIfInteger(IdNode*& y, IdNode*& z){
+    if(y->isInteger){
+        IdNode* tmp = y;
+        y = z;
+        z= tmp;
+        return true;
+    }
+    if(z->isInteger)
+        return true;
+    return false;
+}
 int Manager::pickReg(){
-    for(int reg = 0;reg < regNum; reg++){
-        if(reg==tmpReg) reg++;
-
+    set<IdNode*> aliveVarSet = expr->getAliveVarSet();
+    int minCntAliveLocate;
+    int minCntAlive = 100;
+    for(auto& reg:regToSearch){
+        // 优先找空reg
         if(regTable[reg].empty())
-            return reg;        
-    }
-    for(int reg = 0;reg < regNum; reg++){
-        if(reg==tmpReg) reg++;
-
+            return reg;
+        // 再找reg里存的都是不活跃变量的reg 
         set<IdNode*> idSet = regTable[reg];
-
+        int cntAlive = 0;
+        for(auto& id:idSet){
+            if(isAlive(id, aliveVarSet))
+                cntAlive++;
+        }
+        // 如果没有活跃变量则该寄存器可用
+        if(cntAlive==0)
+            return reg;
+        // 否则找出开销最小的寄存器
+        if(cntAlive < minCntAlive){
+            minCntAlive = cntAlive;
+            minCntAliveLocate = reg;
+        }
     }
-}
 
+    // 还没有找到寄存器，找cntAlive最小的溢出
+    return minCntAliveLocate;
+}
+void Manager::banRegToSearch(int reg1, int reg2 = -1){
+    regToSearch.erase(reg1);
+    regToSearch.erase(reg2);
+}
+void Manager::restoreRegToSearch(int reg1, int reg2 = -1){
+    if(reg1!=-1)
+        regToSearch.insert(reg1);
+    if(reg2!=-1)
+        regToSearch.insert(reg2);
+}
 /* ------------------ AddrDescriptor ------------------ */
 AddrDescriptor::AddrDescriptor(AddrDescriptorType type_, int value_ = -1){
     value = value_;

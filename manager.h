@@ -20,6 +20,7 @@ class Manager{
         IdNode* addId(IdNode* );
 
         // 将params添加到idTable，并load到对应reg
+        // 设置regToSearch
         void setParams(vector<IdNode*> params);
 
         string genCode(ExprNode* expr);
@@ -27,13 +28,19 @@ class Manager{
 
     private:
         int stackSize;
-
+        // 当前在处理的expr
+        ExprNode* expr; 
+        // 排除了函数参数和tmpReg,zeroReg以及在同一语句中分配的reg搜索集
+        set<int> regToSearch;
         // 描述当前IdNode*活跃的地址描述符
         map<IdNode*, AddrSet> idTable;
         // 描述当前reg中存放的IdNode*
         set<IdNode*>[regNum] regTable;
         // 描述IdNode*和已分配栈描述符的对应关系
         map<IdNode*, StackDescriptor> stackInfo;
+
+        // 得到要搜索的reg集合，去掉tmpReg,zeroReg和paraReg
+        void calcRegToSearch(int paraNum);
 
         // 清除reg中别的id，更新别的id的AddrSet
         // 将id load到目标reg，更新id的AddrSet
@@ -90,8 +97,17 @@ class Manager{
         // 使得id只包含reg
         void makeIdShareReg(IdNode* id, int reg);
 
+        // 保存reg中的id,需要判断id是否在expr中活跃
+        // 返回代码
+        string saveIdInReg(int reg);
+
+        
         // 找到一个可用的寄存器
         int pickReg();
+
+        void banRegToSearch(int reg1, int reg2 = -1);
+
+        void restoreRegToSearch(int reg1, int reg2 = -1);
 };
 enum AddrDescriptorType{RegType, StackType, GlobalType};
 

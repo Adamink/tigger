@@ -6,7 +6,6 @@
 #include <set>
 
 #include "manager.h"
-#include "passer.h"
 
 using namespace std;
 
@@ -96,6 +95,7 @@ class FuncNode:public Node{
         virtual void printCode();
 
         Manager* getManager();
+        int getParaNum();
 
 };
 class BlockNode:public Node{
@@ -114,6 +114,9 @@ class BlockNode:public Node{
 
         // 计算每个孩子的活性变量集合
         void calcEveryAliveVarSet();
+
+        // 设置孩子的兄弟节点
+        void setChildBrotherhood();
 
     public:
         BlockNode(int id, FuncNode* parent);
@@ -134,6 +137,7 @@ class ExprNode:public Node{
         int lineNo;
         FuncNode* funcParent;
         BlockNode* blockParent;
+        ExprNode* next;
         set<ExprNode*> succExprSet; // 后继表达式集
         set<IdNode*> aliveVarSet;   // 活跃变量集
 
@@ -155,7 +159,6 @@ class ExprNode:public Node{
         set<IdNode*> calcLeftValueVarSet();
         // 只被CallType使用
         set<IdNode*> getParas();
-        Passer calcPasser();
     public:
         ExprNode(ExprType exprType_,string op_, string label_ = string());
         // 只为LabelType使用
@@ -163,6 +166,7 @@ class ExprNode:public Node{
         
         void setFuncParent(FuncNode* parent);
         void setBlockParent(BlockNode* parent);
+        void setNext(ExprNode* next);
         void setLineNo(int lineNo_);
 
         // 将succ添加入后继表达式集合succExpr
@@ -173,13 +177,20 @@ class ExprNode:public Node{
 
         ExprType getExprType();
         int getLineNo();
+        int getParaNum();
         // 返回GotoType, IfBrachType, LabelType的label,不带冒号
         string getLabel();
+        string getOp();
         set<IdNode*> getAliveVarSet();
         IdNode* getVar();
         IdNode* getRightValue();
         IdNode* getRightValue1();
         IdNode* getRightValue2();
+
+        // 判断id是否活跃
+        bool isAlive(IdNode* );
+        // 判断id是否之后就不再活跃了
+        bool isAliveNext(IdNode* );
 
         // 生成代码存储到code
         virtual void genCode();

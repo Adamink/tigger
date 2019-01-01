@@ -122,6 +122,10 @@ Manager* FuncNode::getManager(){
     return &manager;
 }
 
+int FuncNode::getParaNum(){
+    return paraNum;
+}
+
 // 生成代码入口，供RootNode调用
 void FuncNode::genCode(){
     adjustExprsToDirectChild();
@@ -278,6 +282,7 @@ void BlockNode::addChild(Node* child){
 };
 
 void BlockNode::genCode(){
+    setChildBrotherhood();
     analyzeLiveness();
     for(auto& expr:children){
         expr->genCode();
@@ -286,6 +291,20 @@ void BlockNode::genCode(){
 void BlockNode::printCode(){
     for(auto& expr:children){
         expr->printCode();
+    }
+}
+
+set<IdNode*> BlockNode::getLastAliveVarSet(){
+    return lastAliveVarSet;
+}
+
+void BlockNode::setChildBrotherhood(){
+    last = NULL;
+    int len = children.size();
+    for(int i = len-1;i>=0;i--){
+        ExprNode* expr = (ExprNode*)children[i];
+        expr->setNext(last);
+        last = expr;
     }
 }
 // 计算每个孩子Expr的活性变量集合
@@ -324,9 +343,6 @@ void calcEveryAliveVarSet(){
     }
 }
 
-set<IdNode*> BlockNode::getLastAliveVarSet(){
-    return lastAliveVarSet;
-}
 
 
 /* ------------------ ExprNode ------------------ */
@@ -342,6 +358,7 @@ void ExprNode::init(){
     lineNo = 0;
     funcParent = NULL;
     blockParent = NULL;
+    next = NULL;
     succExprSet = set<ExprNode*>();
     aliveVarSet = set<IdNode*>();
     code = string();
@@ -355,14 +372,27 @@ string ExprNode::getLabel(){
     ||exprType==LabelType||exprType==CallType);
     return label;
 }
+string ExprNode::getOp(){
+    assert(exprType==Op2Type||exprType==Op1Type||exprType==IfBranchType);
+    return op;
+}
 void ExprNode::setFuncParent(FuncNode* parent){
     funcParent = parent;
+}
+void ExprNode::setBlockParent(BlockNode* parent){
+    blockParent = parent;
+}
+void ExprNode::setNext(ExprNode* next_){
+    next = next_;
 }
 void ExprNode::setLineNo(int lineNo_){
     lineNo = lineNo_;
 }
 int ExprNode::getLineNo(){
     return lineNo;
+}
+int ExprNode::getParaNum(){
+    return funcParent->getParaNum();
 }
 // 将succ添加入后继表达式集合succExprs
 void ExprNode::addSuccExpr(ExprNode* succ){
@@ -429,6 +459,7 @@ set<IdNode*> ExprNode::calcRightValueVarSet(){
     else ; // do no thing
     return rightValueSet;
 }
+
 // 计算作为左值的id集合
 set<IdNode*> ExprNode::calcLeftValueVarSet(){
     set<IdNode*> leftValueSet = set<IdNode*>();
@@ -475,63 +506,15 @@ set<IdNode*> ExprNode::getParas(){
 
     }
 }
-void ExprNode::genCode(){
-    /*
-    Passer passer = calcPasser();
-    Manager* manager = funcParent->getManager();
-    code += manager->genCode(passer);*/
-    code += manager->genCode(this);
+bool isAlive(IdNode* id){
+    return aliveVarSet.find(id)!=aliveVarSet.end();
 }
-Passer ExprNode::calcPasser(){
-    Passer passer;
-    switch(exprType){
-        case Op2Type:
-        case StoreArrayType:
-        case VisitArrayType:
-        IdNode* var = getVar();
-        IdNode* rightValue1 = getRightValue1();
-        IdNode* rightValue2 = getRightValue2();
-        passer = Passer(exprType, var, rightValue1, rightValue2, op);
-        break;
-
-        case Op1Type:
-        case NoOpType:
-        IdNode* var = getVar();
-        IdNode* rightValue = getRightValue();
-        passer = Passer(exprType, var, rightValue, NULL, op);
-        break;
-    
-        case IfBranchType:
-        IdNode* rightValue1 = getRightValue1();
-        IdNode* rightValue2 = getRightValue2();
-        passer = Passer(exprType, rightValue1, rightValue2, label);
-        break;
-
-        case GotoType:
-        passer = Passer(exprType, NULL, NULL, label);
-        break;
-
-        case LabelType:
-        passer = Passer(exprType, NULL, NULL, label);
-        break;
-
-        case CallType:
-        IdNode* var = getVar();
-        set<IdNode*> paras = getParas();
-        passer = Passer(exprType, var, paras);
-        break;
-
-        case ReturnType:
-        IdNode* rightValue = getRightValue();
-        passer = Passer(exprType, NULL, rightValue, NULL);
-        break;
-
-        case LocalDeclareType:
-        IdNode* var = getVar();
-        passer = Passer(exprType, var, NULL, NULL);
-        break;
-    }
-    return passer;
+bool isAliveNext(IdNode* id){
+    if(next==NULL) return false;
+    return next->isAlive(id);
+}
+void ExprNode::genCode(){
+    code += manager->genCode(this);
 }
 void ExprNode::printCode(){
     out << code;
