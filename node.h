@@ -136,6 +136,10 @@ class ExprNode:public Node{
         BlockNode* blockParent;
         set<ExprNode*> succExprSet; // 后继表达式集
         set<IdNode*> aliveVarSet;   // 活跃变量集
+
+        IdNode *var *rightValue1, *rightValue2;
+        set<IdNode*> paras;
+        
         string code;
         string label;
         string op;
@@ -149,26 +153,17 @@ class ExprNode:public Node{
         set<IdNode*> calcRightValueVarSet();
         // 计算作为左值的id集合
         set<IdNode*> calcLeftValueVarSet();
-        IdNode* getVar();
-        IdNode* getRightValue();
-        IdNode* getRightValue1();
-        IdNode* getRightValue2();
         // 只被CallType使用
         set<IdNode*> getParas();
-        void getReg(Passer& passer);
         Passer calcPasser();
     public:
         ExprNode(ExprType exprType_,string op_, string label_ = string());
         // 只为LabelType使用
         ExprNode(string label_);
-        ExprType getExprType();
-
-        // 返回GotoType, IfBrachType, LabelType的label,不带冒号
-        string getLabel();
+        
         void setFuncParent(FuncNode* parent);
         void setBlockParent(BlockNode* parent);
         void setLineNo(int lineNo_);
-        int getLineNo();
 
         // 将succ添加入后继表达式集合succExpr
         void addSuccExpr(ExprNode* succ);
@@ -176,7 +171,15 @@ class ExprNode:public Node{
         // 根据 AliveVarSet = (JOIN(V) - left) + right 计算活跃变量集
         void calcAliveVarSet();
 
+        ExprType getExprType();
+        int getLineNo();
+        // 返回GotoType, IfBrachType, LabelType的label,不带冒号
+        string getLabel();
         set<IdNode*> getAliveVarSet();
+        IdNode* getVar();
+        IdNode* getRightValue();
+        IdNode* getRightValue1();
+        IdNode* getRightValue2();
 
         // 生成代码存储到code
         virtual void genCode();
