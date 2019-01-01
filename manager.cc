@@ -345,7 +345,7 @@ string Manager::genCode(ExprNode* expr_){
                 int x_locate = findInWhichReg(x);
                 if(x_locate==-1){
                     x_locate = pickReg();
-                    code += saveInReg(x_locate);
+                    code += saveIdInReg(x_locate);
                     code += loadIdToReg(x, x_locate);
                 }
                 int z_locate = findInWhichReg(z);
@@ -358,7 +358,7 @@ string Manager::genCode(ExprNode* expr_){
                     banRegToSearch(x_locate);
                     z_locate = pickReg();
                     restoreRegToSearch(x_locate);
-                    code += saveInReg(z_locate);
+                    code += saveIdInReg(z_locate);
                     code += loadIdToReg(z, z_locate);
                 }
                 code += regMap[x_locate] + "[" + to_string(y->getValue()) + "] = "
@@ -368,16 +368,62 @@ string Manager::genCode(ExprNode* expr_){
                 int x_locate = findInWhichReg(x);
                 if(x_locate==-1){
                     x_locate = pickReg();
-                    code += saveInReg(x_locate);
+                    code += saveIdInReg(x_locate);
                     code += loadIdToReg(x, x_locate);
                 }
                 int y_locate = findInWhichReg(y);
                 if(y_locate==-1){
-                    
+                    banRegToSearch(x_locate);
+                    y_locate = pickReg();
+                    restoreRegToSearch(x_locate);
+                    code += saveIdInReg(y_locate);
+                    code += loadIdToReg(y,y_locate);
                 }
+                int z_locate = findInWhichReg(z);
+                if(z_locate==-1){
+                    if(z->isInteger()&&z->getValue()==0){
+                        z_locate = zeroReg;
+                        makeIdShareReg(z, zeroReg);
+                        break;
+                    }
+                    banRegToSearch(x_locate, y_locate);
+                    z_locate = pickReg();
+                    restoreRegToSearch(x_locate, y_locate);
+                    code += saveIdInReg(z_locate);
+                    code += loadIdToReg(z_locate);
+                }
+                code += regMap[tmpReg] + " = " + regMap[x_locate] + " + "
+                 + regMap[y_locate] + "\n";
+                code += regMap[tmpReg] + "[0] = " + regMap[z_locate] + "\n";
             }
         break;
         case VisitArrayType:
+            // x = y[z], z could be var, then let t = y + z
+            // x = t[0]
+            IdNode* x = expr->getVar();
+            IdNode* y = expr->getRightValue1();
+            IdNode* z = expr->getRightValue2();
+            if(z->isInteger()){
+                int x_locate = findInWhichReg(x);
+                if(x_locate==-1){
+                    x_locate = pickReg();
+                    code += saveIdInReg(x_locate);
+                    code += loadIdToReg(x, x_locate);
+                }
+                int y_locate = findInWhichReg(y);
+                if(y_locate==-1){
+                    banRegToSearch(x_locate);
+                    y_locate = pickReg();
+                    restoreRegToSearch(x_locate);
+                    code += saveIdInReg(y_locate);
+                    code += loadIdToReg(y,y_locate);
+                }
+                code += regMap[x_locate] + " = " + regMap[y_locate] + "["
+                 + to_string(z->getValue()) + "]\n";
+            }
+            else{
+                
+            }
         break;
         case IfBranchType:
         break;
